@@ -1,1 +1,91 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>BlockMind — MVP (Risk / Cost / OCO)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>html,body{background:#0b1020}</style>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/framer-motion/dist/framer-motion.umd.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="text-slate-100">
+  <div id="root"></div>
+  <script type="text/babel">
+    const {useEffect,useMemo,useState}=React; const {motion}=window.framerMotion;
+    const Label=({children,htmlFor})=>(<label htmlFor={htmlFor} className="block text-sm font-medium text-slate-300 mb-1">{children}</label>);
+    const NumberInput=({value,onChange,id,placeholder,suffix})=>{const[d,setD]=useState(String(value??""));useEffect(()=>setD(String(value??"")),[value]);return(<div className="relative"><input id={id} inputMode="decimal" value={d} onChange={e=>{setD(e.target.value);const v=e.target.value.replace(",",".");const n=Number(v);if(!Number.isNaN(n))onChange(n);}} placeholder={placeholder} className="w-full rounded-2xl bg-slate-900/60 border border-slate-700 px-3 py-2 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"/>{suffix?<span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">{suffix}</span>:null}</div>)};
+    const Select=({value,onChange,options})=>(<select value={value} onChange={e=>onChange(e.target.value)} className="w-full rounded-2xl bg-slate-900/60 border border-slate-700 px-3 py-2 text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500">{options.map(o=><option key={o.value} value={o.value} className="bg-slate-900">{o.label}</option>)}</select>);
+    const Card=({children,title,subtitle,footer})=>(<div className="rounded-2xl border border-slate-800 bg-slate-900/70 shadow-xl overflow-hidden"><div className="p-4 border-b border-slate-800"><h3 className="text-slate-100 text-lg font-semibold">{title}</h3>{subtitle?<p className="text-slate-400 text-sm mt-1">{subtitle}</p>:null}</div><div className="p-4">{children}</div>{footer?<div className="p-4 border-t border-slate-800 bg-slate-900/80">{footer}</div>:null}</div>);
+    const Stat=({label,value,hint})=>(<div className="rounded-xl bg-slate-800/60 border border-slate-700 p-3"><div className="text-xs uppercase tracking-wide text-slate-400">{label}</div><div className="text-slate-100 text-lg font-semibold break-all">{value}</div>{hint?<div className="text-slate-500 text-xs mt-1">{hint}</div>:null}</div>);
+    const Button=({children,onClick,variant="primary"})=>{const base="inline-flex items-center justify-center rounded-xl px-3 py-2 text-sm font-medium transition active:scale-[.98]";const styles=variant==="ghost"?"text-slate-200 bg-slate-800/40 border border-slate-700 hover:bg-slate-800/70":"text-white bg-indigo-600 hover:bg-indigo-500";return <button onClick={onClick} className={`${base} ${styles}`}>{children}</button>};
+    const fmt=(n,opts={})=>n==null||Number.isNaN(n)?"—":new Intl.NumberFormat("en-US",opts).format(n);
+    const pct=(n)=>n/100; // вводим 1 => 1% = 0.01
+
+    function RiskCalc(){const[balance,setBalance]=useState(1000);const[riskPct,setRiskPct]=useState(1);const[entry,setEntry]=useState(60000);const[stop,setStop]=useState(59400);
+      const riskUsd=useMemo(()=>balance*pct(riskPct),[balance,riskPct]);
+      const stopDist=useMemo(()=>Math.abs(entry-stop),[entry,stop]);
+      const size=useMemo(()=>stopDist>0?riskUsd/stopDist:0,[riskUsd,stopDist]);
+      const notional=useMemo(()=>size*entry,[size,entry]);
+      return(<Card title="Калькулятор размера позиции" subtitle="Риск на сделку (РС) и расстояние до стоп-лосса (SLoss) определяют объём.">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div><Label htmlFor="balance">Размер счёта, $</Label><NumberInput id="balance" value={balance} onChange={setBalance} placeholder="1000"/></div>
+          <div><Label htmlFor="risk">Риск на сделку (РС), %</Label><NumberInput id="risk" value={riskPct} onChange={setRiskPct} placeholder="1" suffix="%"/></div>
+          <div><Label htmlFor="entry">Вход (Entry)</Label><NumberInput id="entry" value={entry} onChange={setEntry} placeholder="60000"/></div>
+          <div><Label htmlFor="stop">Стоп-лосс (SLoss)</Label><NumberInput id="stop" value={stop} onChange={setStop} placeholder="59400"/></div>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+          <Stat label="Риск в $" value={`$${fmt(riskUsd,{maximumFractionDigits:2})}`}/>
+          <Stat label="Дистанция стопа" value={fmt(stopDist,{maximumFractionDigits:2})} hint="|Entry − SLoss|"/>
+          <Stat label="Рекомендуемый объём" value={fmt(size,{maximumFractionDigits:6})} hint="Qty = Risk$ / StopDist"/>
+          <Stat label="Номинал сделки" value={`$${fmt(notional,{maximumFractionDigits:2})}`} hint="Qty × Entry"/>
+        </div></Card>);}
+
+    function CostCalc(){const[notional,setNotional]=useState(5000);const[makerFee,setMakerFee]=useState(0.0);const[takerFee,setTakerFee]=useState(0.1);const[spread,setSpread]=useState(0.04);const[slippage,setSlippage]=useState(0.03);const[role,setRole]=useState("taker");
+      const totalPct=useMemo(()=>((role==="maker"?makerFee:takerFee)/100)+(spread/100)+(slippage/100),[makerFee,takerFee,spread,slippage,role]);
+      const totalUsd=useMemo(()=>notional*totalPct,[notional,totalPct]);
+      return(<Card title="Стоимость сделки" subtitle="Комиссия (fee) + спред (spr) + проскальзывание (slip).">
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
+          <div className="md:col-span-2"><Label htmlFor="notional">Номинал сделки, $</Label><NumberInput id="notional" value={notional} onChange={setNotional} placeholder="5000"/></div>
+          <div><Label>Роль</Label><Select value={role} onChange={setRole} options={[{value:"maker",label:"Maker (добавляю ликвидность)"},{value:"taker",label:"Taker (забираю ликвидность)"}]}/></div>
+          <div><Label>Maker fee, %</Label><NumberInput value={makerFee} onChange={setMakerFee} placeholder="0.00" suffix="%"/></div>
+          <div><Label>Taker fee, %</Label><NumberInput value={takerFee} onChange={setTakerFee} placeholder="0.10" suffix="%"/></div>
+          <div><Label>Спред (spr), %</Label><NumberInput value={spread} onChange={setSpread} placeholder="0.04" suffix="%"/></div>
+          <div><Label>Проскальзывание (slip), %</Label><NumberInput value={slippage} onChange={setSlippage} placeholder="0.03" suffix="%"/></div>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+          <Stat label="Итоговая стоимость, %" value={`${fmt(totalPct*100,{maximumFractionDigits:3})}%`}/>
+          <Stat label="Итоговая стоимость, $" value={`$${fmt(totalUsd,{maximumFractionDigits:2})}`}/>
+          <Stat label="Maker (если выберете), $" value={`$${fmt(notional*(makerFee/100),{maximumFractionDigits:2})}`}/>
+          <Stat label="Taker (если выберете), $" value={`$${fmt(notional*(takerFee/100),{maximumFractionDigits:2})}`}/>
+        </div></Card>);}
+
+    function OCO(){const[side,setSide]=useState("long");const[entry,setEntry]=useState(60000);const[qty,setQty]=useState(0.01);const[take,setTake]=useState(62000);const[stopTrig,setStopTrig]=useState(59400);const[stopLim,setStopLim]=useState(59350);
+      useEffect(()=>{if(side==="long")setStopLim(Number((stopTrig-stopTrig*0.001).toFixed(2)));else setStopLim(Number((stopTrig+stopTrig*0.001).toFixed(2)));},[stopTrig,side]);
+      const summary=useMemo(()=> side==="long"
+        ? `Продать ${qty} по тейк-профит лимиту ${take} ИЛИ продать по стоп-лимиту: триггер ${stopTrig} → лимит ${stopLim}`
+        : `Купить ${qty} по тейк-профит лимиту ${take} ИЛИ купить по стоп-лимиту: триггер ${stopTrig} → лимит ${stopLim}`,[side,qty,take,stopTrig,stopLim]);
+      const copy=async()=>{const t=`Side: ${side}\nQty: ${qty}\nTake-profit limit: ${take}\nStop-limit trigger: ${stopTrig}\nStop-limit price: ${stopLim}`;try{await navigator.clipboard.writeText(t);alert("Параметры OCO скопированы — вставьте в форму биржи.");}catch(e){}};
+      return(<Card title="Помощник OCO (One-Cancels-the-Other)" subtitle="Один ордер фиксирует прибыль (тейк-профит-лимит), второй — защищает убыток (стоп-лимит)." footer={<Button onClick={copy}>Скопировать параметры OCO</Button>}>
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
+          <div><Label>Сторона</Label><Select value={side} onChange={setSide} options={[{value:"long",label:"Long (выход — продажа)"},{value:"short",label:"Short (выход — покупка)"}]}/></div>
+          <div><Label>Вход (Entry) — опционально</Label><NumberInput value={entry} onChange={setEntry} placeholder="60000"/></div>
+          <div><Label>Количество (Qty)</Label><NumberInput value={qty} onChange={setQty} placeholder="0.01"/></div>
+          <div><Label>Тейк-профит (Limit)</Label><NumberInput value={take} onChange={setTake} placeholder="62000"/></div>
+          <div><Label>Стоп-цена (Trigger)</Label><NumberInput value={stopTrig} onChange={setStopTrig} placeholder="59400"/></div>
+          <div><Label>Лимит после стопа (Limit after Stop)</Label><NumberInput value={stopLim} onChange={setStopLim} placeholder="59350"/></div>
+        </div>
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3"><Stat label="Резюме OCO" value={summary}/></div>
+        <p className="text-xs text-slate-400 mt-3">Подсказка: для Long лимит-стоп ставим немного ниже стоп-цены (0.05–0.2%), для Short — выше.</p>
+      </Card>);}
+
+    function TopBar({active,setActive}){const tabs=[{id:"risk",label:"Риск (РС → объём)"},{id:"cost",label:"Стоимость сделки"},{id:"oco",label:"OCO-помощник"}];return(<div className="flex items-center justify-between"><div className="flex items-center gap-3"><div className="h-9 w-9 rounded-xl bg-indigo-600/80 grid place-items-center text-white font-bold">BM</div><div><div className="text-slate-100 font-semibold leading-tight">BlockMind</div><div className="text-slate-400 text-xs">AI. Контроль. Результат.</div></div></div><div className="flex gap-1">{tabs.map(t=>(<button key={t.id} onClick={()=>setActive(t.id)} className={`px-3 py-2 rounded-xl text-sm font-medium border transition ${active===t.id?"bg-slate-800/80 border-slate-700 text-slate-100":"bg-slate-900/40 border-slate-800 text-slate-400 hover:text-slate-200"}`}>{t.label}</button>))}</div></div>)}
+    function Sidebar(){const links=[{label:"Безопасность (2FA / Anti-Phishing)",href:"https://www.binance.com/en/support/faq/detail/f3b1adaed1c846bbbba0f3650ad23e45"},{label:"Whitelist адресов вывода",href:"https://www.binance.com/en/support/faq/detail/1d08944f103b4fc78d3519913b600086"},{label:"Stop-Limit и OCO на Binance",href:"https://www.binance.com/en/support/faq/detail/360032605831"},{label:"Таблица комиссий (VIP)",href:"https://www.binance.com/en/fee/schedule"},{label:"Proof of Reserves",href:"https://www.binance.com/en/proof-of-reserves"},{label:"Revoke.cash (ревок аппрувов)",href:"https://revoke.cash/"}];return(<div className="rounded-2xl border border-slate-800 bg-slate-900/70 shadow-xl p-4"><h4 className="text-slate-100 font-semibold mb-2">Линк-пак</h4><ul className="space-y-2 text-sm">{links.map(l=>(<li key={l.href}><a href={l.href} target="_blank" className="text-indigo-400 hover:text-indigo-300">• {l.label}</a></li>))}</ul><p className="text-slate-500 text-xs mt-3">Обучающий материал. Не инвестсовет.</p></div>)}
+    function App(){const[active,setActive]=useState("risk");return(<div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-100"><div className="max-w-7xl mx-auto px-4 py-6"><TopBar active={active} setActive={setActive}/><div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6"><div className="lg:col-span-2 space-y-6">{active==="risk"&&<RiskCalc/>}{active==="cost"&&<CostCalc/>}{active==="oco"&&<OCO/>}</div><div className="lg:col-span-1"><Sidebar/></div></div><div className="mt-8 text-xs text-slate-400"><p>Термины: <b>Риск на сделку (РС)</b> — доля счёта, которой вы готовы рискнуть; <b>Стоп-лосс (SLoss)</b>; <b>Комиссия (fee)</b>, <b>Спред (spr)</b>, <b>Проскальзывание (slip)</b>; <b>Один отменяет другой (OCO)</b> — связка тейк-профит-лимита и стоп-лимита.</p><p className="mt-2">BlockMind — образовательный инструмент. Автоторговля по умолчанию не используется.</p></div></div></div>)}
+    ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+  </script>
+</body>
+</html>
 
